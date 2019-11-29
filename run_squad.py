@@ -1257,7 +1257,6 @@ def main(_):
         start_index = hvd.rank() * num_examples_per_rank + remainder
         end_index = start_index + (num_examples_per_rank)
 
-
   model_fn = model_fn_builder(
       bert_config=bert_config,
       init_checkpoint=FLAGS.init_checkpoint,

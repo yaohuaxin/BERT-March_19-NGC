@@ -43,6 +43,18 @@ train_steps=${7:-1144000}
 save_checkpoint_steps=${8:-5000}
 create_logfile=${9:-"true"}
 
+echo "====================Parameters Begin===================="
+echo "train_batch_size      : " $train_batch_size
+echo "eval_batch_size       : " $eval_batch_size
+echo "learning_rate         : " $learning_rate
+echo "precision             : " $precision
+echo "num_gpus              : " $num_gpus
+echo "warmup_steps          : " $warmup_steps
+echo "train_steps           : " $train_steps
+echo "save_checkpoint_steps : " $save_checkpoint_steps
+echo "create_logfile        : " $create_logfile
+echo "====================Parameters End======================"
+
 PREC=""
 if [ "$precision" = "fp16" ] ; then
    PREC="--use_fp16"
@@ -79,7 +91,7 @@ CMD+=" --report_loss"
 CMD+=" --horovod $PREC"
 
 if [ $num_gpus -gt 1 ] ; then
-   CMD="mpiexec --allow-run-as-root -np $num_gpus --bind-to socket $CMD"
+   CMD="mpiexec -pami_noib --allow-run-as-root -np $num_gpus --bind-to socket $CMD"
 fi
 
 if [ "$create_logfile" = "true" ] ; then
