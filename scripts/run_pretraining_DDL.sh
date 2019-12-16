@@ -71,7 +71,7 @@ else
    exit -2
 fi
 
-echo $SOURCES
+#echo $SOURCES
 INPUT_FILES=$(eval ls $SOURCES | tr " " "\n" | awk '{printf "%s,",$1}' | sed s'/.$//')
 CMD="python3 /workspace/bert/run_pretraining.py"
 CMD+=" --input_file=$INPUT_FILES"
@@ -91,7 +91,7 @@ CMD+=" --report_loss"
 CMD+=" --horovod $PREC"
 
 if [ $num_gpus -gt 1 ] ; then
-   CMD="mpiexec -pami_noib --allow-run-as-root -np $num_gpus --bind-to socket $CMD"
+   CMD="ddlrun --mode p --mpiarg -pami_noib --mpiarg --allow-run-as-root --accelerators $num_gpus $CMD"
 fi
 
 if [ "$create_logfile" = "true" ] ; then
