@@ -3,6 +3,7 @@
 import hashlib
 import urllib.request
 import zipfile
+import os
 
 # Download urls
 model_urls = {
@@ -99,10 +100,14 @@ for model in model_urls:
   url = model_urls[model][0]
   file = model_urls[model][1]
 
-  print("Downloading", url)
   response = urllib.request.urlopen(url)
-  with open(file, "wb") as handle:
-    handle.write(response.read())
+  
+  if not os.path.exists(file):
+    print("Downloading", url)
+    with open(file, "wb") as handle:
+      handle.write(response.read())
+  else:
+    print(file, "exists, skip downloading.")
 
   print("Unzipping", file)
   zip = zipfile.ZipFile(file, 'r')
