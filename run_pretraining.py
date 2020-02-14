@@ -154,10 +154,12 @@ class _LogSessionRunHook(tf.train.SessionRunHook):
         img_per_sec = self.global_batch_size / dt
         if self.hvd_rank >= 0:
           if FLAGS.use_fp16 or FLAGS.amp:
-            print('%2d :: %6i %11.1f %10.4e %10.4e %6.3f     %6.4e  %6.4e' %
+            print('%2d :: step %6i img_per_sec_per_node %11.1f mlm_loss %10.4e nsp_loss %10.4e total_loss %6.3f     lr %6.4e  loss_scaler %6.4e' %
+            #print('%2d :: %6i %11.1f %10.4e %10.4e %6.3f     %6.4e  %6.4e' %
                   (self.hvd_rank, print_step, img_per_sec, mlm_loss, nsp_loss, total_loss, lr, loss_scaler))
           else:
-            print('%2d :: %6i %11.1f %10.4e %10.4e %6.3f     %6.4e' %
+            print('%2d :: step %6i img_per_sec_per_node %11.1f mlm_loss %10.4e nsp_loss %10.4e total_loss %6.3f     lr %6.4e' %
+            #print('%2d :: %6i %11.1f %10.4e %10.4e %6.3f     %6.4e' %
                   (self.hvd_rank, print_step, img_per_sec, mlm_loss, nsp_loss, total_loss, lr))
         else:
           if FLAGS.use_fp16 or FLAGS.amp:
@@ -180,6 +182,16 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     tf.logging.info("*** Features ***")
     for name in sorted(features.keys()):
       tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
+      '''
+      Output:
+        name = input_ids, shape = (6, 512)
+        name = input_mask, shape = (6, 512)
+        name = masked_lm_ids, shape = (6, 80)
+        name = masked_lm_positions, shape = (6, 80)
+        name = masked_lm_weights, shape = (6, 80)
+        name = next_sentence_labels, shape = (6, 1)
+        name = segment_ids, shape = (6, 512)
+      '''
 
     input_ids = features["input_ids"]
     input_mask = features["input_mask"]
@@ -486,6 +498,21 @@ def main(_):
     import horovod.tensorflow as hvd
     hvd.init()
 
+  tf.logging.info("*** distribution configurations begin***")
+  tf.logging.info("*** *** World size: {}.".format(hvd.size()))
+  tf.logging.info("*** *** Local size: {}.".format(hvd.local_size()))
+  tf.logging.info("*** *** Current rank: {}.".format(hvd.rank()))
+  tf.logging.info("*** *** Current local rank: {}.".format(hvd.local_rank()))
+  tf.logging.info("*** *** mpi_threads_supported: {}.".format(hvd.mpi_threads_supported()))
+  tf.logging.info("*** *** mpi_built: {}.".format(hvd.mpi_built()))
+  tf.logging.info("*** *** mpi_enabled: {}.".format(hvd.mpi_enabled()))
+  tf.logging.info("*** *** gloo_built: {}.".format(hvd.gloo_built()))
+  tf.logging.info("*** *** gloo_enabled: {}.".format(hvd.gloo_enabled()))
+  tf.logging.info("*** *** nccl_built: {}.".format(hvd.nccl_built()))
+  tf.logging.info("*** *** ddl_built: {}.".format(hvd.ddl_built()))
+  tf.logging.info("*** *** mlsl_built: {}.".format(hvd.mlsl_built()))
+  tf.logging.info("*** distribution configurations end***")
+
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
@@ -494,10 +521,15 @@ def main(_):
   for input_pattern in FLAGS.input_file.split(","):
     input_files.extend(tf.gfile.Glob(input_pattern))
 
+  '''
   tf.logging.info("*** Input Files ***")
   for input_file in input_files:
-    tf.logging.info("  %s" % input_file)
+    tf.logging.info("  On rank %d: %s" % (hvd.rank(), input_file))
+  '''
 
+  ##################################################################
+  #### Construting the estimator
+  ##################################################################
   tpu_cluster_resolver = None
   if FLAGS.use_tpu and FLAGS.tpu_name:
     tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
@@ -508,6 +540,7 @@ def main(_):
     config.gpu_options.visible_device_list = str(hvd.local_rank())
   if FLAGS.use_xla: 
     config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+
   is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
   run_config = tf.contrib.tpu.RunConfig(
       cluster=tpu_cluster_resolver,
@@ -543,8 +576,7 @@ def main(_):
     global_batch_size = FLAGS.train_batch_size if not FLAGS.horovod else FLAGS.train_batch_size*hvd.size()
     training_hooks.append(_LogSessionRunHook(global_batch_size,1,-1 if not FLAGS.horovod else hvd.rank()))
 
-  # If TPU is not available, this will fall back to normal Estimator on CPU
-  # or GPU.
+  # If TPU is not available, this will fall back to normal Estimator on CPU or GPU.
   estimator = tf.contrib.tpu.TPUEstimator(
       use_tpu=FLAGS.use_tpu,
       model_fn=model_fn,
@@ -552,6 +584,9 @@ def main(_):
       train_batch_size=FLAGS.train_batch_size,
       eval_batch_size=FLAGS.eval_batch_size)
 
+  ##################################################################
+  #### Training
+  ##################################################################
   if FLAGS.do_train:
     tf.logging.info("***** Running training *****")
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
@@ -561,8 +596,12 @@ def main(_):
         max_predictions_per_seq=FLAGS.max_predictions_per_seq,
         is_training=True,
         hvd=None if not FLAGS.horovod else hvd)
+    
     estimator.train(input_fn=train_input_fn, hooks=training_hooks, max_steps=FLAGS.num_train_steps)
 
+  ##################################################################
+  #### Evaluating
+  ##################################################################
   if FLAGS.do_eval and (not FLAGS.horovod or hvd.rank() == 0):
     tf.logging.info("***** Running evaluation *****")
     tf.logging.info("  Batch size = %d", FLAGS.eval_batch_size)
