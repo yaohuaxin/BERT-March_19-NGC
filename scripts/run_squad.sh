@@ -21,6 +21,7 @@ echo "precision           : " $precision
 echo "use_xla             : " $use_xla
 echo "num_gpu             : " $num_gpu
 echo "init_checkpoint     : " $init_checkpoint
+echo "epochs              : " $epochs
 echo "====================Parameters End======================"
 
 use_fp16=""
@@ -49,6 +50,7 @@ else
     use_hvd="--horovod"
 fi
 
+start_time_=$SECONDS
 
 $mpi_command python run_squad.py \
     --vocab_file=$BERT_DIR/vocab.txt \
@@ -75,3 +77,7 @@ if [ $? -ne 0 ]; then
 fi 
 
 python $SQUAD_DIR/evaluate-v1.1.py $SQUAD_DIR/dev-v1.1.json /results/predictions.json
+
+wait
+duration=$(( SECONDS - start_time_ ))
+echo "Running duration: $duration Seconds."

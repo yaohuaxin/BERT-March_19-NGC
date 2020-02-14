@@ -71,7 +71,7 @@ else
    exit -2
 fi
 
-echo $SOURCES
+#echo $SOURCES
 INPUT_FILES=$(eval ls $SOURCES | tr " " "\n" | awk '{printf "%s,",$1}' | sed s'/.$//')
 CMD="python3 /workspace/bert/run_pretraining.py"
 CMD+=" --input_file=$INPUT_FILES"
@@ -92,6 +92,8 @@ CMD+=" --horovod $PREC"
 
 if [ $num_gpus -gt 1 ] ; then
    CMD="mpiexec -pami_noib --allow-run-as-root -np $num_gpus --bind-to socket $CMD"
+   # command for two machines
+   # CMD="ddlrun -tcp --mpiarg '--allow-run-as-root' --mpiarg '--mca btl_tcp_if_include 30.1.0.0/16' --accelerators $num_gpus --host 30.1.1.1:8,30.1.1.2:8 $CMD"
 fi
 
 if [ "$create_logfile" = "true" ] ; then
@@ -102,6 +104,8 @@ if [ "$create_logfile" = "true" ] ; then
   printf "Logs written to %s\n" "$LOGFILE"
 fi
 
+start_time_=$SECONDS
+
 set -x
 if [ -z "$LOGFILE" ] ; then
    $CMD
@@ -111,3 +115,7 @@ else
    ) |& tee $LOGFILE
 fi
 set +x
+
+wait
+duration_=$(( SECONDS - start_time_ ))
+echo "Running duration: $duration_ Seconds."
